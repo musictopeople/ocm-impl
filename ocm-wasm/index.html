@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCM Web Interface</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px 0 15px 0;
+            font-family: inherit;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        .memory-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .memory-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .memory-item small {
+            color: #666;
+            display: block;
+            margin-top: 5px;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>OCM Web Interface</h1>
+            <p>Our Collective Memory - Browser-based decentralized identity and data sovereignty</p>
+        </div>
+
+        <div id="status" class="status info">
+            Initializing OCM WASM module...
+        </div>
+
+        <div class="section">
+            <h3>Identity Management</h3>
+            <button id="create-identity">Create Identity</button>
+            <button id="get-identity" disabled>Get Current Identity</button>
+            <div id="identity-info"></div>
+        </div>
+
+        <div class="section">
+            <h3>Create Memory</h3>
+            <input type="text" id="memory-type" placeholder="Memory type (e.g., individual, location)" value="individual">
+            <textarea id="memory-data" placeholder="Memory data (JSON)" rows="4">{"name": "Example User", "email": "user@example.com"}</textarea>
+            <button id="create-memory" disabled>Create & Sign Memory</button>
+        </div>
+
+        <div class="section">
+            <h3>Stored Memories</h3>
+            <button id="list-memories" disabled>Refresh Memory List</button>
+            <div id="memory-list" class="memory-list"></div>
+        </div>
+
+        <div class="section">
+            <h3>Storage Status</h3>
+            <button id="storage-status">Check Storage</button>
+            <button id="clear-storage">Clear All Data</button>
+            <div id="storage-info"></div>
+        </div>
+
+        <div class="section">
+            <h3>Debug</h3>
+            <pre id="debug-log"></pre>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script type="module">
+        import init, { OcmWasm } from './pkg/ocm_wasm.js';
+
+        let isInitialized = false;
+        let currentIdentity = null;
+        let ocmWasm = null;
+        let sqlDb = null;
+        let opfsRoot = null;
+
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        function log(message) {
+            const debugLog = document.getElementById('debug-log');
+            const timestamp = new Date().toISOString();
+            debugLog.textContent += `[${timestamp}] ${message}\n`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+
+        function enableButtons() {
+            document.getElementById('create-identity').disabled = false;
+            document.getElementById('get-identity').disabled = false;
+            document.getElementById('create-memory').disabled = false;
+            document.getElementById('list-memories').disabled = false;
+        }
+
+        // SQLite + OPFS functions
+        async function initSqliteOpfs() {
+            try {
+                // Initialize sql.js
+                const SQL = await initSqlJs({
+                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+                });
+                log('SQL.js loaded successfully');
+
+                // Get OPFS access
+                if ('storage' in navigator && 'getDirectory' in navigator.storage) {
+                    opfsRoot = await navigator.storage.getDirectory();
+                    log('✅ OPFS available - database will persist across browser sessions');
+                    
+                    // Try to load existing database
+                    try {
+                        const fileHandle = await opfsRoot.getFileHandle('ocm.db');
+                        const file = await fileHandle.getFile();
+                        const dbData = new Uint8Array(await file.arrayBuffer());
+                        sqlDb = new SQL.Database(dbData);
+                        log('📁 Loaded existing database from OPFS');
+                    } catch (e) {
+                        // Create new database
+                        sqlDb = new SQL.Database();
+                        log('🆕 Created new SQLite database');
+                        await createTables();
+                    }
+                } else {
+                    // Fallback to in-memory database
+                    sqlDb = new SQL.Database();
+                    log('⚠️ OPFS not supported - using in-memory database (will not persist)');
+                    await createTables();
+                }
+
+                // Make functions available to WASM
+                window.sqlExecute = sqlExecute;
+                window.sqlQuery = sqlQuery;
+                window.saveDatabase = saveDatabase;
+
+                return true;
+            } catch (error) {
+                log(`SQLite initialization error: ${error}`);
+                return false;
+            }
+        }
+
+        async function createTables() {
+            // Same schema as native OCM implementation
+            const migrations = [
+                // V1: individuals table
+                `CREATE TABLE IF NOT EXISTS individual (
+                    id TEXT PRIMARY KEY,
+                    first_name TEXT NOT NULL,
+                    middle_name TEXT,
+                    last_name TEXT NOT NULL,
+                    dob TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    employer TEXT,
+                    updated_on TEXT NOT NULL
+                )`,
+                
+                // V2: signed_memory table  
+                `CREATE TABLE IF NOT EXISTS signed_memory (
+                    id TEXT PRIMARY KEY,
+                    did TEXT NOT NULL,
+                    memory_type TEXT NOT NULL,
+                    memory_data TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    updated_on TEXT NOT NULL
+                )`,
+                
+                // V3: claim_tokens table
+                `CREATE TABLE IF NOT EXISTS claim_tokens (
+                    id TEXT PRIMARY KEY,
+                    token TEXT NOT NULL UNIQUE,
+                    memory_id TEXT NOT NULL,
+                    organization_did TEXT NOT NULL,
+                    expiry_timestamp TEXT NOT NULL,
+                    claimed_by_did TEXT,
+                    claimed_timestamp TEXT,
+                    created_timestamp TEXT NOT NULL,
+                    updated_on TEXT NOT NULL,
+                    FOREIGN KEY (memory_id) REFERENCES signed_memory(id)
+                )`
+            ];
+
+            for (const sql of migrations) {
+                sqlDb.run(sql);
+            }
+            
+            log(`🗃️ Created ${migrations.length} database tables`);
+        }
+
+        async function sqlExecute(sql, params = []) {
+            try {
+                const stmt = sqlDb.prepare(sql);
+                stmt.bind(params);
+                stmt.step();
+                stmt.free();
+                await saveDatabase();
+                return { success: true };
+            } catch (error) {
+                log(`SQL execute error: ${error}`);
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function sqlQuery(sql, params = []) {
+            try {
+                const stmt = sqlDb.prepare(sql);
+                stmt.bind(params);
+                
+                const results = [];
+                while (stmt.step()) {
+                    results.push(stmt.getAsObject());
+                }
+                stmt.free();
+                
+                return { success: true, data: results };
+            } catch (error) {
+                log(`SQL query error: ${error}`);
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function saveDatabase() {
+            if (!opfsRoot) return; // No OPFS support
+            
+            try {
+                const data = sqlDb.export();
+                const fileHandle = await opfsRoot.getFileHandle('ocm.db', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(data);
+                await writable.close();
+                log('💾 Database saved to OPFS');
+            } catch (error) {
+                log(`Database save error: ${error}`);
+            }
+        }
+
+        async function initOCM() {
+            try {
+                await init();
+                
+                // Initialize SQLite + OPFS first
+                const sqliteReady = await initSqliteOpfs();
+                if (!sqliteReady) {
+                    throw new Error('SQLite initialization failed');
+                }
+                
+                // Create OCM WASM instance
+                ocmWasm = new OcmWasm();
+                
+                // Initialize OPFS-backed storage
+                await ocmWasm.init_storage();
+                
+                updateStatus('OCM WASM + SQLite + OPFS initialized successfully!', 'success');
+                log('🎉 OCM now running with persistent SQLite database in browser');
+                
+                isInitialized = true;
+                enableButtons();
+                
+                // Check for existing identity
+                await checkExistingIdentity();
+                
+            } catch (error) {
+                updateStatus(`Failed to initialize: ${error.message}`, 'error');
+                log(`Initialization error: ${error}`);
+            }
+        }
+
+        async function checkExistingIdentity() {
+            try {
+                // For now, we'll track identity creation in the session
+                // TODO: Add persistent identity storage
+                log('No existing identity found - create one first');
+            } catch (error) {
+                log(`Error checking identity: ${error}`);
+            }
+        }
+
+        function updateIdentityInfo(identity) {
+            const identityInfo = document.getElementById('identity-info');
+            if (identity) {
+                identityInfo.innerHTML = `
+                    <div class="memory-item">
+                        <strong>DID:</strong> ${identity.did}<br>
+                        <strong>Handle:</strong> ${identity.handle || 'None'}<br>
+                        <strong>Created:</strong> ${new Date().toISOString()}
+                    </div>
+                `;
+            } else {
+                identityInfo.innerHTML = '<p>No identity created yet</p>';
+            }
+        }
+
+        async function updateMemoryList() {
+            try {
+                if (!ocmWasm) {
+                    updateStatus('OCM not initialized', 'error');
+                    return;
+                }
+                
+                const memoriesJson = await ocmWasm.list_memories();
+                const memories = JSON.parse(memoriesJson);
+                const memoryList = document.getElementById('memory-list');
+                
+                if (memories.length === 0) {
+                    memoryList.innerHTML = '<p>No memories stored yet</p>';
+                    return;
+                }
+
+                memoryList.innerHTML = memories.map(memory => `
+                    <div class="memory-item">
+                        <strong>Type:</strong> ${memory.memory_type || 'unknown'}<br>
+                        <strong>Data:</strong> ${memory.data ? memory.data.substring(0, 100) + '...' : 'No data'}
+                        <small>
+                            ID: ${memory.id || 'unknown'}<br>
+                            Timestamp: ${memory.timestamp || 'unknown'}
+                        </small>
+                    </div>
+                `).join('');
+                
+                log(`Listed ${memories.length} memories`);
+            } catch (error) {
+                updateStatus(`Failed to list memories: ${error.message}`, 'error');
+                log(`Memory list error: ${error}`);
+            }
+        }
+
+        // Event listeners
+        document.getElementById('create-identity').addEventListener('click', async () => {
+            try {
+                if (!ocmWasm) {
+                    updateStatus('OCM not initialized', 'error');
+                    return;
+                }
+                
+                const handle = prompt('Enter handle (optional):') || null;
+                const did = ocmWasm.create_identity(handle);
+                currentIdentity = { did, handle };
+                updateIdentityInfo(currentIdentity);
+                updateStatus('Identity created successfully!', 'success');
+                log(`Created identity: ${did}`);
+            } catch (error) {
+                updateStatus(`Failed to create identity: ${error.message}`, 'error');
+                log(`Identity creation error: ${error}`);
+            }
+        });
+
+        document.getElementById('get-identity').addEventListener('click', async () => {
+            await checkExistingIdentity();
+        });
+
+        document.getElementById('create-memory').addEventListener('click', async () => {
+            try {
+                if (!ocmWasm) {
+                    updateStatus('OCM not initialized', 'error');
+                    return;
+                }
+                
+                if (!currentIdentity) {
+                    updateStatus('Please create an identity first', 'error');
+                    return;
+                }
+
+                const memoryType = document.getElementById('memory-type').value;
+                const memoryData = document.getElementById('memory-data').value;
+                
+                if (!memoryType || !memoryData) {
+                    updateStatus('Please fill in memory type and data', 'error');
+                    return;
+                }
+
+                // Validate JSON
+                try {
+                    JSON.parse(memoryData);
+                } catch {
+                    updateStatus('Memory data must be valid JSON', 'error');
+                    return;
+                }
+
+                const memoryId = await ocmWasm.store_memory(memoryType, memoryData);
+                updateStatus('Memory created and signed successfully!', 'success');
+                log(`Created memory: ${memoryId}`);
+                
+                // Refresh memory list
+                await updateMemoryList();
+                
+                // Clear form
+                document.getElementById('memory-data').value = '';
+                
+            } catch (error) {
+                updateStatus(`Failed to create memory: ${error.message}`, 'error');
+                log(`Memory creation error: ${error}`);
+            }
+        });
+
+        document.getElementById('list-memories').addEventListener('click', updateMemoryList);
+
+        document.getElementById('storage-status').addEventListener('click', async () => {
+            try {
+                if (!ocmWasm) {
+                    updateStatus('OCM not initialized', 'error');
+                    return;
+                }
+                
+                const memoriesJson = await ocmWasm.list_memories();
+                const memories = JSON.parse(memoriesJson);
+                const storageInfo = document.getElementById('storage-info');
+                storageInfo.innerHTML = `
+                    <div class="memory-item">
+                        <strong>Identities:</strong> ${currentIdentity ? 1 : 0}<br>
+                        <strong>Memories:</strong> ${memories.length}<br>
+                        <strong>Storage Type:</strong> IndexedDB
+                    </div>
+                `;
+                log('Storage status retrieved');
+            } catch (error) {
+                updateStatus(`Failed to get storage status: ${error.message}`, 'error');
+                log(`Storage status error: ${error}`);
+            }
+        });
+
+        document.getElementById('clear-storage').addEventListener('click', async () => {
+            if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
+                try {
+                    // For now, just reset the session state
+                    // TODO: Implement actual storage clearing
+                    currentIdentity = null;
+                    updateIdentityInfo(null);
+                    document.getElementById('memory-list').innerHTML = '<p>No memories stored yet</p>';
+                    document.getElementById('storage-info').innerHTML = '';
+                    updateStatus('Session data cleared', 'success');
+                    log('Session data cleared');
+                } catch (error) {
+                    updateStatus(`Failed to clear data: ${error.message}`, 'error');
+                    log(`Clear data error: ${error}`);
+                }
+            }
+        });
+
+        // Initialize when page loads
+        initOCM();
+    </script>
+</body>
+</html>
