@@ -479,11 +479,13 @@
                 const memoriesJson = await ocmWasm.list_memories();
                 const memories = JSON.parse(memoriesJson);
                 const storageInfo = document.getElementById('storage-info');
+                const storageType = opfsRoot ? 'OPFS + SQLite (Persistent)' : 'SQLite (In-Memory)';
                 storageInfo.innerHTML = `
                     <div class="memory-item">
                         <strong>Identities:</strong> ${currentIdentity ? 1 : 0}<br>
                         <strong>Memories:</strong> ${memories.length}<br>
-                        <strong>Storage Type:</strong> IndexedDB
+                        <strong>Storage Type:</strong> ${storageType}<br>
+                        <strong>Database:</strong> ${opfsRoot ? 'ocm.db (Saved to OPFS)' : 'Temporary'}
                     </div>
                 `;
                 log('Storage status retrieved');

@@ -111,7 +111,7 @@ curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 cargo run --bin migrate
 
 # 2. Start the full OCM node
-cargo run --bin ocm-impl
+cargo run --bin ocm-core
 ```
 
 **What happens:**
@@ -177,7 +177,7 @@ Creates SQLite database at `data/ocm-impl.db` with tables:
 cargo run --bin migrate
 
 # Terminal 2: Start native OCM node
-cargo run --bin ocm-impl
+cargo run --bin ocm-core
 
 # Terminal 3: Start relay server
 cargo run --bin relay-server
@@ -198,8 +198,8 @@ cargo run --bin web-server
 ### P2P Network Demo
 ```bash
 # Start two nodes in separate terminals:
-cargo run --bin ocm-impl  # First node
-cargo run --bin ocm-impl  # Second node (will discover first)
+cargo run --bin ocm-core  # First node
+cargo run --bin ocm-core  # Second node (will discover first)
 ```
 
 ### Network Architecture
