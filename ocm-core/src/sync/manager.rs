@@ -1,7 +1,7 @@
-use crate::sync::crdt::{CrdtManager, CrdtMemory};
-use crate::persistence::database::Database;
 use crate::core::models::SignedMemory;
 use crate::networking::protocol::{MessageType, OcmNetworking};
+use crate::persistence::database::Database;
+use crate::sync::crdt::{CrdtManager, CrdtMemory};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -59,7 +59,7 @@ impl SyncCleanupGuard {
             completed: false,
         }
     }
-    
+
     async fn complete(&mut self) {
         self.completed = true;
         let mut state = self.sync_state.lock().await;
@@ -145,7 +145,7 @@ impl SyncManager {
 
         // Ensure cleanup happens even if sync fails
         let mut cleanup_guard = SyncCleanupGuard::new(self.sync_state.clone(), peer_id.to_string());
-        
+
         let last_sync = {
             let state = self.sync_state.lock().await;
             state.last_sync_per_peer.get(peer_id).cloned()

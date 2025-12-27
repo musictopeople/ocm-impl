@@ -1,16 +1,16 @@
-use crate::persistence::database::Database;
 use crate::core::models::SignedMemory;
 use crate::identity::plc::OcmProtocol;
+use crate::persistence::database::Database;
+use base64::{engine::general_purpose, Engine as _};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc};
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use base64::{Engine as _, engine::general_purpose};
-use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkMessage {
@@ -18,8 +18,8 @@ pub struct NetworkMessage {
     pub payload: String,
     pub from_peer: String,
     pub timestamp: String,
-    pub nonce: String,        // Unique nonce for replay protection
-    pub hmac: String,         // HMAC for message authentication
+    pub nonce: String, // Unique nonce for replay protection
+    pub hmac: String,  // HMAC for message authentication
 }
 
 // Constants for message security and rate limiting
@@ -62,7 +62,7 @@ pub struct OcmNetworking {
     pub message_sender: mpsc::UnboundedSender<NetworkMessage>,
     pub message_receiver: Arc<Mutex<mpsc::UnboundedReceiver<NetworkMessage>>>,
     message_nonces: Arc<Mutex<HashMap<String, u64>>>, // nonce -> timestamp for replay protection
-    rate_limiter: Arc<Mutex<RateLimiter>>, // Rate limiting per IP
+    rate_limiter: Arc<Mutex<RateLimiter>>,            // Rate limiting per IP
     connection_tracker: Arc<Mutex<HashMap<String, u32>>>, // IP -> active connection count
 }
 
@@ -116,44 +116,44 @@ impl RateLimiter {
             message_counts: HashMap::new(),
         }
     }
-    
+
     fn check_rate_limit(&mut self, peer_ip: &str) -> Result<(), String> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Clean up expired windows
         self.cleanup_expired_windows(now);
-        
+
         // Get or create message count for this IP
-        let message_count = self.message_counts
-            .entry(peer_ip.to_string())
-            .or_insert(MessageCount {
-                count: 0,
-                window_start: now,
-            });
-        
+        let message_count =
+            self.message_counts
+                .entry(peer_ip.to_string())
+                .or_insert(MessageCount {
+                    count: 0,
+                    window_start: now,
+                });
+
         // Check if we're in a new window
         if now - message_count.window_start >= RATE_LIMIT_WINDOW_SECS {
             message_count.count = 0;
             message_count.window_start = now;
         }
-        
+
         // Check rate limit
         if message_count.count >= MAX_MESSAGES_PER_MINUTE {
             return Err(format!("Rate limit exceeded for IP: {}", peer_ip));
         }
-        
+
         // Increment count
         message_count.count += 1;
         Ok(())
     }
-    
+
     fn cleanup_expired_windows(&mut self, now: u64) {
-        self.message_counts.retain(|_, count| {
-            now - count.window_start < RATE_LIMIT_WINDOW_SECS
-        });
+        self.message_counts
+            .retain(|_, count| now - count.window_start < RATE_LIMIT_WINDOW_SECS);
     }
 }
 
@@ -182,38 +182,47 @@ impl OcmNetworking {
         if uuid::Uuid::parse_str(&message.from_peer).is_err() {
             return Err("Invalid peer ID format".to_string());
         }
-        
+
         // Validate payload size
         if message.payload.len() > MAX_MESSAGE_SIZE {
-            return Err(format!("Payload too large: {} bytes", message.payload.len()));
+            return Err(format!(
+                "Payload too large: {} bytes",
+                message.payload.len()
+            ));
         }
-        
+
         // Validate timestamp format
         if chrono::DateTime::parse_from_rfc3339(&message.timestamp).is_err() {
             return Err("Invalid timestamp format".to_string());
         }
-        
+
         // Validate nonce format (base64)
-        if base64::engine::general_purpose::STANDARD.decode(&message.nonce).is_err() {
+        if base64::engine::general_purpose::STANDARD
+            .decode(&message.nonce)
+            .is_err()
+        {
             return Err("Invalid nonce format".to_string());
         }
-        
+
         // Validate HMAC format
-        if base64::engine::general_purpose::STANDARD.decode(&message.hmac).is_err() {
+        if base64::engine::general_purpose::STANDARD
+            .decode(&message.hmac)
+            .is_err()
+        {
             return Err("Invalid HMAC format".to_string());
         }
-        
+
         Ok(())
     }
 
     async fn check_connection_limit(&self, peer_ip: &str) -> Result<(), String> {
         let mut tracker = self.connection_tracker.lock().await;
         let current_connections = *tracker.get(peer_ip).unwrap_or(&0);
-        
+
         if current_connections >= MAX_CONNECTIONS_PER_IP {
             return Err(format!("Connection limit exceeded for IP: {}", peer_ip));
         }
-        
+
         // Increment connection count
         tracker.insert(peer_ip.to_string(), current_connections + 1);
         Ok(())
@@ -247,9 +256,9 @@ impl OcmNetworking {
         let mut nonce_bytes = [0u8; 16];
         rng.fill_bytes(&mut nonce_bytes);
         let nonce = general_purpose::STANDARD.encode(&nonce_bytes);
-        
+
         let timestamp = chrono::Utc::now().to_rfc3339();
-        
+
         let mut message = NetworkMessage {
             message_type,
             payload,
@@ -258,7 +267,7 @@ impl OcmNetworking {
             nonce,
             hmac: String::new(), // Will be calculated below
         };
-        
+
         // Calculate HMAC over the message content (excluding the hmac field)
         let message_content = Self::get_message_content_for_hmac(&message);
         let mut mac = HmacSha256::new_from_slice(NETWORK_SHARED_SECRET)
@@ -266,7 +275,7 @@ impl OcmNetworking {
         mac.update(message_content.as_bytes());
         let hmac_result = mac.finalize();
         message.hmac = general_purpose::STANDARD.encode(hmac_result.into_bytes());
-        
+
         message
     }
 
@@ -281,48 +290,54 @@ impl OcmNetworking {
         )
     }
 
-    fn verify_message_authentication(&self, message: &NetworkMessage) -> Result<bool, Box<dyn std::error::Error>> {
+    fn verify_message_authentication(
+        &self,
+        message: &NetworkMessage,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
         // Check message timestamp (prevent old message replay)
         let message_time = chrono::DateTime::parse_from_rfc3339(&message.timestamp)?;
         let now = chrono::Utc::now();
         let age = now.signed_duration_since(message_time.with_timezone(&chrono::Utc));
-        
+
         if age.num_seconds() > MESSAGE_TIMEOUT_SECS as i64 {
             return Ok(false); // Message too old
         }
-        
+
         // Calculate expected HMAC
         let message_content = Self::get_message_content_for_hmac(message);
         let mut mac = HmacSha256::new_from_slice(NETWORK_SHARED_SECRET)
             .expect("HMAC can take key of any size");
         mac.update(message_content.as_bytes());
         let expected_hmac = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-        
+
         // Constant-time comparison to prevent timing attacks
         if message.hmac.len() != expected_hmac.len() {
             return Ok(false);
         }
-        
+
         let mut result = 0u8;
         for (a, b) in message.hmac.bytes().zip(expected_hmac.bytes()) {
             result |= a ^ b;
         }
-        
+
         Ok(result == 0)
     }
 
     async fn check_replay_protection(&self, message: &NetworkMessage) -> bool {
         let mut nonces = self.message_nonces.lock().await;
-        
+
         // Clean up old nonces (older than timeout)
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         nonces.retain(|_, &mut timestamp| (now - timestamp) < MESSAGE_TIMEOUT_SECS);
-        
+
         // Check if nonce already exists
         if nonces.contains_key(&message.nonce) {
             return false; // Replay attack detected
         }
-        
+
         // Add nonce
         nonces.insert(message.nonce.clone(), now);
         true
@@ -357,11 +372,9 @@ impl OcmNetworking {
                         let self_for_task = self_clone.clone();
 
                         tokio::spawn(async move {
-                            if let Err(e) = self_for_task.handle_connection(
-                                stream,
-                                addr.to_string(),
-                            )
-                            .await
+                            if let Err(e) = self_for_task
+                                .handle_connection(stream, addr.to_string())
+                                .await
                             {
                                 eprintln!("Error handling connection: {}", e);
                             }
@@ -381,16 +394,21 @@ impl OcmNetworking {
         peer_addr: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Extract IP from peer_addr (remove port)
-        let peer_ip = peer_addr.split(':').next().unwrap_or(&peer_addr).to_string();
-        
+        let peer_ip = peer_addr
+            .split(':')
+            .next()
+            .unwrap_or(&peer_addr)
+            .to_string();
+
         // Check connection limit
         if let Err(e) = self.check_connection_limit(&peer_ip).await {
             eprintln!("Connection rejected: {}", e);
             return Err(e.into());
         }
-        
+
         // Ensure connection cleanup on drop
-        let _connection_guard = ConnectionGuard::new(self.connection_tracker.clone(), peer_ip.clone());
+        let _connection_guard =
+            ConnectionGuard::new(self.connection_tracker.clone(), peer_ip.clone());
         // Use dynamic buffer with size limit
         let mut buffer = Vec::new();
         let mut length_bytes = [0u8; 4];
@@ -400,15 +418,18 @@ impl OcmNetworking {
             if stream.read_exact(&mut length_bytes).await.is_err() {
                 break; // Connection closed
             }
-            
+
             let message_length = u32::from_be_bytes(length_bytes) as usize;
-            
+
             // Enforce message size limit
             if message_length > MAX_MESSAGE_SIZE {
-                eprintln!("Message too large: {} bytes (max: {})", message_length, MAX_MESSAGE_SIZE);
+                eprintln!(
+                    "Message too large: {} bytes (max: {})",
+                    message_length, MAX_MESSAGE_SIZE
+                );
                 break;
             }
-            
+
             // Read the actual message
             buffer.resize(message_length, 0);
             stream.read_exact(&mut buffer).await?;
@@ -419,25 +440,25 @@ impl OcmNetworking {
                     eprintln!("Rate limit exceeded: {}", e);
                     continue;
                 }
-                
+
                 // Validate message format
                 if let Err(e) = self.validate_message(&message) {
                     eprintln!("Message validation failed: {}", e);
                     continue;
                 }
-                
+
                 // Verify message authentication
                 if !self.verify_message_authentication(&message)? {
                     eprintln!("Message authentication failed from: {}", peer_addr);
                     continue;
                 }
-                
+
                 // Check replay protection
                 if !self.check_replay_protection(&message).await {
                     eprintln!("Replay attack detected from: {}", peer_addr);
                     continue;
                 }
-                
+
                 self.process_message(message, &peer_addr).await?;
 
                 // Send authenticated acknowledgment
@@ -512,7 +533,7 @@ impl OcmNetworking {
                         let peers = self.peers.lock().await;
                         peers.get(&message.from_peer).cloned()
                     };
-                    
+
                     if let Some(peer_info) = requesting_peer {
                         for memory in memories.iter().take(10) {
                             // Send last 10 memories directly to requesting peer
@@ -521,7 +542,9 @@ impl OcmNetworking {
                                 serde_json::to_string(memory)?,
                                 self.local_peer_id.clone(),
                             );
-                            if let Err(e) = self.send_message_to_peer(&peer_info, &sync_message).await {
+                            if let Err(e) =
+                                self.send_message_to_peer(&peer_info, &sync_message).await
+                            {
                                 eprintln!("Failed to send memory to requesting peer: {}", e);
                                 break; // Stop sending if connection fails
                             }
@@ -535,17 +558,22 @@ impl OcmNetworking {
                 let peers_lock = self.peers.lock().await;
                 let peer_list: Vec<&PeerInfo> = peers_lock.values().collect();
                 let requesting_peer = peers_lock.get(&message.from_peer).cloned();
-                
-                if let (Some(peer_info), Ok(payload)) = (requesting_peer, serde_json::to_string(&peer_list)) {
+
+                if let (Some(peer_info), Ok(payload)) =
+                    (requesting_peer, serde_json::to_string(&peer_list))
+                {
                     let discovery_message = Self::create_authenticated_message(
                         MessageType::PeerDiscovery,
                         payload,
                         self.local_peer_id.clone(),
                     );
-                    
+
                     // Send response directly to requesting peer
                     drop(peers_lock);
-                    if let Err(e) = self.send_message_to_peer(&peer_info, &discovery_message).await {
+                    if let Err(e) = self
+                        .send_message_to_peer(&peer_info, &discovery_message)
+                        .await
+                    {
                         eprintln!("Failed to send peer discovery response: {}", e);
                     }
                 }
@@ -636,29 +664,27 @@ impl OcmNetworking {
         let mut stream = TcpStream::connect(&addr).await?;
 
         let message_data = serde_json::to_vec(message)?;
-        
+
         // Send length-prefixed message (same protocol as handle_connection)
         let length = (message_data.len() as u32).to_be_bytes();
         stream.write_all(&length).await?;
         stream.write_all(&message_data).await?;
 
         // Wait for acknowledgment with timeout
-        tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            async {
-                let mut length_bytes = [0u8; 4];
-                stream.read_exact(&mut length_bytes).await?;
-                let ack_length = u32::from_be_bytes(length_bytes) as usize;
-                
-                if ack_length > MAX_MESSAGE_SIZE {
-                    return Err("Acknowledgment too large".into());
-                }
-                
-                let mut ack_buffer = vec![0; ack_length];
-                stream.read_exact(&mut ack_buffer).await?;
-                Ok::<(), Box<dyn std::error::Error>>(())
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut length_bytes = [0u8; 4];
+            stream.read_exact(&mut length_bytes).await?;
+            let ack_length = u32::from_be_bytes(length_bytes) as usize;
+
+            if ack_length > MAX_MESSAGE_SIZE {
+                return Err("Acknowledgment too large".into());
             }
-        ).await??;
+
+            let mut ack_buffer = vec![0; ack_length];
+            stream.read_exact(&mut ack_buffer).await?;
+            Ok::<(), Box<dyn std::error::Error>>(())
+        })
+        .await??;
 
         Ok(())
     }

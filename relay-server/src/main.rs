@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 #[derive(Parser)]
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
     let addr = format!("{}:{}", args.host, args.port);
-    
+
     let listener = TcpListener::bind(&addr).await?;
     info!("OCM Relay Server listening on: {}", addr);
 
@@ -38,20 +38,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Ok((stream, addr)) = listener.accept().await {
         info!("New connection from: {}", addr);
         let connections = Arc::clone(&connections);
-        
+
         tokio::spawn(handle_connection(stream, connections, addr.to_string()));
     }
 
     Ok(())
 }
 
-async fn handle_connection(
-    stream: TcpStream,
-    connections: Connections,
-    client_addr: String,
-) {
+async fn handle_connection(stream: TcpStream, connections: Connections, client_addr: String) {
     let client_id = Uuid::new_v4().to_string();
-    
+
     let ws_stream = match accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
@@ -68,7 +64,7 @@ async fn handle_connection(
         let mut conns = connections.lock().await;
         conns.insert(client_id.clone(), tx.clone());
     }
-    
+
     info!("Client {} connected ({})", client_id, client_addr);
 
     // Send initial welcome message
@@ -77,7 +73,7 @@ async fn handle_connection(
         "client_id": client_id,
         "message": "Connected to OCM relay server"
     });
-    
+
     if let Err(e) = ws_sender.send(Message::Text(welcome.to_string())).await {
         warn!("Failed to send welcome message to {}: {}", client_id, e);
     }
@@ -101,7 +97,7 @@ async fn handle_connection(
         match msg {
             Ok(Message::Text(text)) => {
                 info!("Received message from {}: {}", client_id, text);
-                
+
                 // Try to parse as JSON to determine message type
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                     if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
@@ -116,7 +112,7 @@ async fn handle_connection(
                                     "type": "pong",
                                     "timestamp": chrono::Utc::now().to_rfc3339()
                                 });
-                                
+
                                 let mut sender = ws_sender_arc.lock().await;
                                 if let Err(e) = sender.send(Message::Text(pong.to_string())).await {
                                     warn!("Failed to send pong to {}: {}", client_id, e);
@@ -158,19 +154,15 @@ async fn handle_connection(
         let mut conns = connections.lock().await;
         conns.remove(&client_id);
     }
-    
+
     info!("Client {} connection closed", client_id);
 }
 
-async fn broadcast_to_others(
-    connections: &Connections,
-    sender_id: &str,
-    message: &str,
-) {
+async fn broadcast_to_others(connections: &Connections, sender_id: &str, message: &str) {
     let conns = connections.lock().await;
-    
+
     let mut failed_clients = Vec::new();
-    
+
     for (client_id, tx) in conns.iter() {
         if client_id != sender_id {
             if let Err(_) = tx.send(message.to_string()) {
@@ -178,7 +170,7 @@ async fn broadcast_to_others(
             }
         }
     }
-    
+
     // Note: Failed clients will be cleaned up when their connections close
     if !failed_clients.is_empty() {
         warn!("Failed to broadcast to {} clients", failed_clients.len());

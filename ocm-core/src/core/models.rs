@@ -284,17 +284,18 @@ impl ClaimToken {
     pub fn new(memory_id: &str, organization_did: &str, expires_in_hours: i64) -> Self {
         let now = chrono::Utc::now();
         let expiry = now + chrono::Duration::hours(expires_in_hours);
-        
+
         // Generate cryptographically secure token with 128 bits of entropy
         use rand::RngCore;
         let mut rng = rand::rngs::OsRng;
         let mut random_bytes = [0u8; 16]; // 128 bits
         rng.fill_bytes(&mut random_bytes);
-        
+
         // Encode as base32 for human readability while maintaining security
-        let random_part = base32::encode(base32::Alphabet::RFC4648 { padding: false }, &random_bytes);
+        let random_part =
+            base32::encode(base32::Alphabet::RFC4648 { padding: false }, &random_bytes);
         let token = format!("OCM-{}", &random_part[..16]); // Take first 16 chars for readability
-        
+
         ClaimToken {
             id: uuid::Uuid::new_v4().to_string(),
             token,
@@ -384,9 +385,14 @@ pub struct ProxyMemory {
 }
 
 impl ProxyMemory {
-    pub fn new(proxy_for_name: &str, proxy_for_info: Option<String>, organization_did: &str, memory_data: &str) -> Self {
+    pub fn new(
+        proxy_for_name: &str,
+        proxy_for_info: Option<String>,
+        organization_did: &str,
+        memory_data: &str,
+    ) -> Self {
         let now = chrono::Utc::now();
-        
+
         ProxyMemory {
             id: uuid::Uuid::new_v4().to_string(),
             proxy_for_name: proxy_for_name.to_string(),

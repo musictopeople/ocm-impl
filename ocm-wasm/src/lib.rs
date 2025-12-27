@@ -2,15 +2,15 @@ use wasm_bindgen::prelude::*;
 use web_sys::console;
 
 // Import core OCM functionality
-use ocm_core::{SignedMemory, PlcIdentity};
+use ocm_core::{PlcIdentity, SignedMemory};
 
 mod storage;
-mod websocket;
 mod utils;
+mod websocket;
 
 pub use storage::*;
-pub use websocket::*;
 pub use utils::*;
+pub use websocket::*;
 
 // WeeAlloc removed as it's outdated and causes issues
 
@@ -38,7 +38,7 @@ pub fn main() {
     // Initialize panic hook for better error messages
     #[cfg(feature = "console_error_panic_hook")]
     console_error_panic_hook::set_once();
-    
+
     log!("OCM WASM module loaded!");
 }
 
@@ -54,25 +54,24 @@ impl OcmWasm {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         utils::set_panic_hook();
-        
+
         Self {
             storage: BrowserStorage::new(),
             identity: None,
         }
     }
-    
+
     #[wasm_bindgen]
     pub fn create_identity(&mut self, handle: Option<String>) -> Result<String, String> {
-        let identity = PlcIdentity::generate(handle)
-            .map_err(|e| e.to_string())?;
-        
+        let identity = PlcIdentity::generate(handle).map_err(|e| e.to_string())?;
+
         let did = identity.did.clone();
         self.identity = Some(identity);
-        
+
         log!("Created identity with DID: {}", did);
         Ok(did)
     }
-    
+
     #[wasm_bindgen]
     pub async fn init_storage(&mut self) -> Result<(), String> {
         self.storage.init().await.map_err(|e| e.to_string())
@@ -80,31 +79,38 @@ impl OcmWasm {
 
     #[wasm_bindgen]
     pub async fn store_memory(&mut self, memory_type: &str, data: &str) -> Result<String, String> {
-        let identity = self.identity.as_ref()
+        let identity = self
+            .identity
+            .as_ref()
             .ok_or_else(|| "No identity created".to_string())?;
-        
+
         let mut memory = SignedMemory::new(&identity.did, memory_type, data);
-        
+
         // Sign the memory with the identity
-        identity.sign_memory(&mut memory)
+        identity
+            .sign_memory(&mut memory)
             .map_err(|e| e.to_string())?;
-        
+
         let memory_id = memory.id.clone();
-        
+
         // Store in browser storage
-        self.storage.store_memory(&memory).await
+        self.storage
+            .store_memory(&memory)
+            .await
             .map_err(|e| format!("Storage error: {:?}", e))?;
-        
+
         log!("Stored memory: {}", memory_id);
         Ok(memory_id)
     }
-    
+
     #[wasm_bindgen]
     pub async fn list_memories(&self) -> Result<String, String> {
-        let memories = self.storage.list_memories().await
+        let memories = self
+            .storage
+            .list_memories()
+            .await
             .map_err(|e| format!("Storage error: {:?}", e))?;
-        
-        serde_json::to_string(&memories)
-            .map_err(|e| e.to_string())
+
+        serde_json::to_string(&memories).map_err(|e| e.to_string())
     }
 }

@@ -5,11 +5,11 @@ mod networking;
 mod persistence;
 mod sync;
 
-use config::{OcmConfig, init_logging};
-use core::{OcmError, Result, Individual, SignedMemory};
+use config::{init_logging, OcmConfig};
+use core::{Individual, OcmError, Result, SignedMemory};
 use tracing::{error, info};
 
-use identity::{ClaimSystem, plc::OcmProtocol};
+use identity::{plc::OcmProtocol, ClaimSystem};
 use networking::{OcmNetworking, PeerDiscovery};
 use persistence::Database;
 use std::sync::Arc;
@@ -40,7 +40,6 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
 
 async fn run_ocm_node(config: OcmConfig) -> Result<()> {
     info!("Connecting to database: {:?}", config.database.path);
@@ -88,42 +87,41 @@ async fn run_ocm_node(config: OcmConfig) -> Result<()> {
     // Step 1: Capture - Create a memory from the individual
     let memory_data = serde_json::to_string(&test_individual)?;
     let mut memory = SignedMemory::new(&identity_did, "individual", &memory_data);
-    println!(
-        "📝 CAPTURE: Created memory with hash: {}",
-        memory.content_hash
-    );
+    println!("CAPTURE: Created memory with hash: {}", memory.content_hash);
 
     // Step 2: Attestation - Sign the memory with PLC identity
     ocm.attest_memory(&mut memory).await?;
     println!(
-        "✍️  ATTESTATION: Signed memory with signature: {:.20}...",
+        "ATTESTATION: Signed memory with signature: {:.20}...",
         memory.signature
     );
 
     // Step 3: Store the signed memory locally (part of federation)
     db_arc.create_signed_memory(&memory)?;
-    println!("💾 STORAGE: Stored signed memory in local database");
+    println!("STORAGE: Stored signed memory in local database");
 
     // Step 4: Federation - Verify the memory (as if received from a peer)
     let is_valid = ocm.verify_federated_memory(&memory).await?;
-    println!("✅ FEDERATION: Memory verification result: {}", is_valid);
+    println!("FEDERATION: Memory verification result: {}", is_valid);
 
     // List all memories from this DID
     let memories = db_arc.list_memories_by_did(&identity_did)?;
     println!(
-        "📚 Found {} memories from DID: {}",
+        "Found {} memories from DID: {}",
         memories.len(),
         identity_did
     );
 
     // Demonstrate the Claim Token System
     println!("\n🎫 === OCM CLAIM TOKEN SYSTEM DEMO ===");
-    
+
     // Create a second identity to act as the organization (summer camp)
-    let mut camp_identity = ocm.create_identity(Some("summer-camp-2024".to_string())).await?;
+    let mut camp_identity = ocm
+        .create_identity(Some("summer-camp-2024".to_string()))
+        .await?;
     let camp_did = camp_identity.did.clone();
-    println!("🏕️  Created camp organization: {}", camp_did);
-    
+    println!("Created camp organization: {}", camp_did);
+
     // Camp creates a proxy record for a child whose parents haven't signed up yet
     let jamie_data = Individual {
         id: uuid::Uuid::new_v4().to_string(),
@@ -136,45 +134,54 @@ async fn run_ocm_node(config: OcmConfig) -> Result<()> {
         employer: None,
         updated_on: chrono::Utc::now().to_rfc3339(),
     };
-    
+
     let claim_system = ClaimSystem::new(db_arc.clone());
-    
-    let (proxy, claim_token) = claim_system.create_proxy_record(
-        &mut ocm,
-        &camp_did,
-        "Jamie Smith",
-        Some("Child at Summer Camp 2024, Parent contact: parent@example.com".to_string()),
-        &jamie_data,
-    ).await?;
-    
-    println!("📋 Proxy record created for: {}", proxy.proxy_for_name);
-    println!("🎟️  Claim token generated: {}", claim_token.token);
-    
+
+    let (proxy, claim_token) = claim_system
+        .create_proxy_record(
+            &mut ocm,
+            &camp_did,
+            "Jamie Smith",
+            Some("Child at Summer Camp 2024, Parent contact: parent@example.com".to_string()),
+            &jamie_data,
+        )
+        .await?;
+
+    println!("Proxy record created for: {}", proxy.proxy_for_name);
+    println!("Claim token generated: {}", claim_token.token);
+
     // Show camp statistics
     let stats = claim_system.get_claim_statistics(&camp_did)?;
-    println!("📊 Camp Statistics:");
+    println!("Camp Statistics:");
     println!("   - Total proxy records: {}", stats.total_proxy_records);
     println!("   - Active claim tokens: {}", stats.tokens_active);
-    
+
     // Now simulate the parent claiming the record
     println!("\n👨‍👩‍👧 Parent Claims Record:");
-    let parent_identity = ocm.create_identity(Some("jamie-parent".to_string())).await?;
+    let parent_identity = ocm
+        .create_identity(Some("jamie-parent".to_string()))
+        .await?;
     let parent_did = parent_identity.did.clone();
     println!("👤 Created parent identity: {}", parent_did);
-    
-    let claimed_memory = claim_system.claim_proxy_record(&mut ocm, &claim_token.token, &parent_did).await?;
-    println!("🔐 Parent now owns Jamie's data with memory ID: {}", claimed_memory.id);
-    
+
+    let claimed_memory = claim_system
+        .claim_proxy_record(&mut ocm, &claim_token.token, &parent_did)
+        .await?;
+    println!(
+        "Parent now owns Jamie's data with memory ID: {}",
+        claimed_memory.id
+    );
+
     // Verify the parent now has control
     let parent_memories = db_arc.list_memories_by_did(&parent_did)?;
     println!("📚 Parent's memories count: {}", parent_memories.len());
-    
+
     // Show updated statistics
     let updated_stats = claim_system.get_claim_statistics(&camp_did)?;
     println!("📊 Updated Camp Statistics:");
     println!("   - Tokens claimed: {}", updated_stats.tokens_claimed);
     println!("   - Claim rate: {:.1}%", updated_stats.claim_rate());
-    
+
     println!("✅ Claim token system demonstration complete!");
     println!("   This enables organizations to create records for individuals");
     println!("   who can later claim ownership and control of their data.");
@@ -212,8 +219,8 @@ async fn run_ocm_node(config: OcmConfig) -> Result<()> {
     // Step 7: Initialize memory synchronization manager
     let sync_manager = SyncManager::new(
         networking_arc.local_peer_id.clone(), // Dereference to access the field
-        db_arc.clone(),                          // Arc clone (cheap pointer copy)
-        networking_arc.clone(),                 // Arc clone (cheap pointer copy)
+        db_arc.clone(),                       // Arc clone (cheap pointer copy)
+        networking_arc.clone(),               // Arc clone (cheap pointer copy)
     );
 
     // Start sync service

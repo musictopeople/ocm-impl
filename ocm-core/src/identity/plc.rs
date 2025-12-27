@@ -1,5 +1,5 @@
 use crate::core::models::SignedMemory;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 #[cfg(feature = "native")]
 use reqwest::Client;
@@ -21,8 +21,8 @@ pub struct PlcIdentity {
 /// Secure keypair with automatic memory zeroing
 #[derive(Clone)]
 pub struct PlcKeypair {
-    pub public_key: String,  // Base64 encoded (safe to store)
-    private_key: SecureKey,  // Secure private key storage
+    pub public_key: String, // Base64 encoded (safe to store)
+    private_key: SecureKey, // Secure private key storage
 }
 
 /// Secure key storage that zeroes memory on drop
@@ -38,7 +38,7 @@ impl SecureKey {
             key_data: Box::new(key_bytes),
         }
     }
-    
+
     fn as_bytes(&self) -> &[u8; 32] {
         &self.key_data
     }
@@ -68,7 +68,7 @@ impl PlcKeypair {
             private_key: SecureKey::new(private_key_bytes),
         }
     }
-    
+
     /// Get the private key bytes for cryptographic operations
     pub fn private_key_bytes(&self) -> &[u8; 32] {
         self.private_key.as_bytes()

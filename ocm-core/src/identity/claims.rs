@@ -1,7 +1,7 @@
-use crate::persistence::database::Database;
 use crate::core::error::{OcmError, Result};
 use crate::core::models::{ClaimToken, Individual, ProxyMemory, SignedMemory};
 use crate::identity::plc::OcmProtocol;
+use crate::persistence::database::Database;
 use std::sync::Arc;
 
 pub struct ClaimSystem {
@@ -28,28 +28,37 @@ impl ClaimSystem {
             .map_err(|e| OcmError::OperationFailed(format!("Failed to serialize data: {}", e)))?;
 
         // Create proxy memory entry
-        let mut proxy = ProxyMemory::new(proxy_for_name, proxy_for_info, organization_did, &memory_data);
-        
+        let mut proxy = ProxyMemory::new(
+            proxy_for_name,
+            proxy_for_info,
+            organization_did,
+            &memory_data,
+        );
+
         // Create a signed memory for this proxy data (signed by organization)
-        let mut signed_memory = SignedMemory::new(organization_did, "proxy_individual", &memory_data);
-        
+        let mut signed_memory =
+            SignedMemory::new(organization_did, "proxy_individual", &memory_data);
+
         // Sign the memory with organization's credentials
         ocm_protocol.attest_memory(&mut signed_memory).await?;
-        
+
         // Store the signed memory
         self.db.create_signed_memory(&signed_memory)?;
-        
+
         // Create claim token that expires in 30 days (reasonable for camp scenarios)
         let claim_token = ClaimToken::new(&signed_memory.id, organization_did, 30 * 24); // 30 days
-        
+
         // Link the proxy to the claim token
         proxy.claim_token_id = Some(claim_token.id.clone());
-        
+
         // Store both records
         self.db.create_proxy_memory(&proxy)?;
         self.db.create_claim_token(&claim_token)?;
 
-        println!("🎫 Generated claim token: {} for {}", claim_token.token, proxy_for_name);
+        println!(
+            "🎫 Generated claim token: {} for {}",
+            claim_token.token, proxy_for_name
+        );
         println!("   Organization: {}", organization_did);
         println!("   Expires: {}", claim_token.expiry_timestamp);
 
@@ -65,20 +74,28 @@ impl ClaimSystem {
         claimer_did: &str,
     ) -> Result<SignedMemory> {
         // Find the claim token
-        let mut token = self.db.get_claim_token_by_token(token_code)?
-            .ok_or_else(|| OcmError::OperationFailed(format!("Claim token '{}' not found", token_code)))?;
+        let mut token = self
+            .db
+            .get_claim_token_by_token(token_code)?
+            .ok_or_else(|| {
+                OcmError::OperationFailed(format!("Claim token '{}' not found", token_code))
+            })?;
 
         // Attempt to claim the token (this validates expiry and claimed status)
-        token.claim(claimer_did)
+        token
+            .claim(claimer_did)
             .map_err(|e| OcmError::OperationFailed(e))?;
 
         // Get the original signed memory
-        let original_memory = self.db.get_signed_memory(&token.memory_id)?
+        let original_memory = self
+            .db
+            .get_signed_memory(&token.memory_id)?
             .ok_or_else(|| OcmError::OperationFailed("Original memory not found".to_string()))?;
 
         // Create a new signed memory owned by the claimer (not the organization)
-        let mut claimed_memory = SignedMemory::new(claimer_did, "individual", &original_memory.memory_data);
-        
+        let mut claimed_memory =
+            SignedMemory::new(claimer_did, "individual", &original_memory.memory_data);
+
         // Sign with claimer's identity
         ocm_protocol.attest_memory(&mut claimed_memory).await?;
 
@@ -98,7 +115,8 @@ impl ClaimSystem {
 
     /// List all proxy records created by an organization
     pub fn list_organization_proxies(&self, organization_did: &str) -> Result<Vec<ProxyMemory>> {
-        self.db.list_proxy_memories_by_organization(organization_did)
+        self.db
+            .list_proxy_memories_by_organization(organization_did)
     }
 
     /// List all claim tokens created by an organization
@@ -115,7 +133,7 @@ impl ClaimSystem {
     pub fn get_claim_statistics(&self, organization_did: &str) -> Result<ClaimStatistics> {
         let tokens = self.list_organization_tokens(organization_did)?;
         let proxies = self.list_organization_proxies(organization_did)?;
-        
+
         let total_tokens = tokens.len();
         let claimed_tokens = tokens.iter().filter(|t| t.is_claimed()).count();
         let expired_tokens = tokens.iter().filter(|t| t.is_expired()).count();

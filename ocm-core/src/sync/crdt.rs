@@ -162,7 +162,8 @@ impl CrdtMemory {
     /// Essential for restoring the index after deserialization
     pub fn rebuild_index(&mut self) {
         // We use &self.operations to borrow, then collect into the HashSet
-        self.operation_index = self.operations
+        self.operation_index = self
+            .operations
             .as_slice() // The "Magic" fix for your error
             .iter()
             .map(|op| op.operation_id.clone())
@@ -231,8 +232,9 @@ impl CrdtMemory {
     }
 
     fn apply_append_operation(&mut self, operation: &MemoryOperation) -> Result<(), CrdtError> {
-        let mut memory_data: serde_json::Value = serde_json::from_str::<serde_json::Value>(&self.base_memory.memory_data[..])
-            .map_err(|_| CrdtError::InvalidMemoryData)?;
+        let mut memory_data: serde_json::Value =
+            serde_json::from_str::<serde_json::Value>(&self.base_memory.memory_data[..])
+                .map_err(|_| CrdtError::InvalidMemoryData)?;
 
         let path_parts: Vec<&str> = operation.field_path.split('.').collect();
         let mut current = &mut memory_data;
@@ -240,7 +242,9 @@ impl CrdtMemory {
         // Navigate to the target field
         for part in &path_parts {
             if let serde_json::Value::Object(obj) = current {
-                current = obj.entry(part.to_string()).or_insert(serde_json::Value::Null);
+                current = obj
+                    .entry(part.to_string())
+                    .or_insert(serde_json::Value::Null);
             }
         }
 
@@ -254,7 +258,11 @@ impl CrdtMemory {
                     s.push_str(to_append);
                 }
             }
-            _ => return Err(CrdtError::OperationFailed("Target is not appendable".to_string())),
+            _ => {
+                return Err(CrdtError::OperationFailed(
+                    "Target is not appendable".to_string(),
+                ))
+            }
         }
 
         self.finalize_change(memory_data);
@@ -262,8 +270,9 @@ impl CrdtMemory {
     }
 
     fn apply_delete_operation(&mut self, operation: &MemoryOperation) -> Result<(), CrdtError> {
-        let mut memory_data: serde_json::Value = serde_json::from_str(&self.base_memory.memory_data)
-            .map_err(|_| CrdtError::InvalidMemoryData)?;
+        let mut memory_data: serde_json::Value =
+            serde_json::from_str(&self.base_memory.memory_data)
+                .map_err(|_| CrdtError::InvalidMemoryData)?;
 
         let path_parts: Vec<&str> = operation.field_path.split('.').collect();
         let mut current = &mut memory_data;
@@ -288,8 +297,9 @@ impl CrdtMemory {
     }
 
     fn apply_merge_operation(&mut self, operation: &MemoryOperation) -> Result<(), CrdtError> {
-        let mut memory_data: serde_json::Value = serde_json::from_str(&self.base_memory.memory_data)
-            .map_err(|_| CrdtError::InvalidMemoryData)?;
+        let mut memory_data: serde_json::Value =
+            serde_json::from_str(&self.base_memory.memory_data)
+                .map_err(|_| CrdtError::InvalidMemoryData)?;
 
         let path_parts: Vec<&str> = operation.field_path.split('.').collect();
         let mut current = &mut memory_data;
@@ -302,7 +312,8 @@ impl CrdtMemory {
                 if is_last {
                     // Merge the operation value with the existing value
                     let existing_value = obj.get(*part).cloned().unwrap_or(serde_json::Value::Null);
-                    let merged_value = self.merge_json_values(existing_value, operation.value.clone())?;
+                    let merged_value =
+                        self.merge_json_values(existing_value, operation.value.clone())?;
                     obj.insert(part.to_string(), merged_value);
                     break;
                 } else {
@@ -322,7 +333,11 @@ impl CrdtMemory {
         Ok(())
     }
 
-    fn merge_json_values(&self, existing: serde_json::Value, new: serde_json::Value) -> Result<serde_json::Value, CrdtError> {
+    fn merge_json_values(
+        &self,
+        existing: serde_json::Value,
+        new: serde_json::Value,
+    ) -> Result<serde_json::Value, CrdtError> {
         match (existing, new) {
             (serde_json::Value::Object(mut existing_obj), serde_json::Value::Object(new_obj)) => {
                 // Merge objects by combining their properties
@@ -382,7 +397,8 @@ impl CrdtMemory {
     }
 
     fn has_operation(&self, operation_id: &str) -> bool {
-        self.operations.as_slice()
+        self.operations
+            .as_slice()
             .iter()
             .any(|op| op.operation_id == operation_id)
     }
@@ -402,7 +418,8 @@ impl CrdtMemory {
 
             // Check if there's a conflicting operation
             let conflicting_ops: Vec<&MemoryOperation> = self
-                .operations.as_slice()
+                .operations
+                .as_slice()
                 .iter()
                 .filter(|op| op.field_path == other_op.field_path && op.value != other_op.value)
                 .collect();

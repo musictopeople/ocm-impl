@@ -31,7 +31,7 @@ macro_rules! error {
 extern "C" {
     // Bind the `alert` function from the browser
     fn alert(s: &str);
-    
+
     // Bind the `confirm` function from the browser
     fn confirm(s: &str) -> bool;
 }

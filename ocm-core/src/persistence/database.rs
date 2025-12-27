@@ -728,7 +728,7 @@ impl Database {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map([id], ClaimToken::from_row)?;
-        
+
         match rows.next() {
             Some(row) => Ok(Some(row?)),
             None => Ok(None),
@@ -744,7 +744,7 @@ impl Database {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map([token], ClaimToken::from_row)?;
-        
+
         match rows.next() {
             Some(row) => Ok(Some(row?)),
             None => Ok(None),
@@ -770,7 +770,10 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_claim_tokens_by_organization(&self, organization_did: &str) -> Result<Vec<ClaimToken>> {
+    pub fn list_claim_tokens_by_organization(
+        &self,
+        organization_did: &str,
+    ) -> Result<Vec<ClaimToken>> {
         let sql = format!(
             "SELECT {} FROM {} WHERE organization_did = ?1 ORDER BY created_timestamp DESC",
             ClaimToken::select_fields(),
@@ -779,7 +782,7 @@ impl Database {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([organization_did], ClaimToken::from_row)?;
-        
+
         let mut tokens = Vec::new();
         for row in rows {
             tokens.push(row?);
@@ -814,14 +817,17 @@ impl Database {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map([id], ProxyMemory::from_row)?;
-        
+
         match rows.next() {
             Some(row) => Ok(Some(row?)),
             None => Ok(None),
         }
     }
 
-    pub fn list_proxy_memories_by_organization(&self, organization_did: &str) -> Result<Vec<ProxyMemory>> {
+    pub fn list_proxy_memories_by_organization(
+        &self,
+        organization_did: &str,
+    ) -> Result<Vec<ProxyMemory>> {
         let sql = format!(
             "SELECT {} FROM {} WHERE organization_did = ?1 ORDER BY created_timestamp DESC",
             ProxyMemory::select_fields(),
@@ -830,7 +836,7 @@ impl Database {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([organization_did], ProxyMemory::from_row)?;
-        
+
         let mut proxies = Vec::new();
         for row in rows {
             proxies.push(row?);
@@ -846,16 +852,16 @@ impl Database {
         );
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(&sql)?;
-        
+
         // Escape SQL wildcards to prevent injection
         let escaped_pattern = name_pattern
-            .replace('\\', "\\\\")  // Escape backslashes first
-            .replace('%', "\\%")    // Escape percent signs
-            .replace('_', "\\_");   // Escape underscores
+            .replace('\\', "\\\\") // Escape backslashes first
+            .replace('%', "\\%") // Escape percent signs
+            .replace('_', "\\_"); // Escape underscores
         let search_pattern = format!("%{}%", escaped_pattern);
-        
+
         let rows = stmt.query_map([search_pattern], ProxyMemory::from_row)?;
-        
+
         let mut proxies = Vec::new();
         for row in rows {
             proxies.push(row?);

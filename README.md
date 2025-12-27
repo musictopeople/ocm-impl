@@ -96,36 +96,111 @@ The Rust core acts as the "Synapse" between local database and the outside world
 ```bash
 # Install Rust if not already installed
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install wasm-pack for WASM builds
+curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 ```
 
-### Quick Start
+## Available Demos
 
-**Native OCM Node:**
+### 1. Native OCM Node (Complete Protocol Demo)
+**What it demonstrates:** Full OCM protocol including identity creation, memory signing, claim tokens, P2P networking, and CRDT conflict resolution.
+
 ```bash
-# Initialize database
+# 1. Initialize database and run migrations
 cargo run --bin migrate
 
-# Start OCM node
+# 2. Start the full OCM node
 cargo run --bin ocm-impl
 ```
 
-**Browser OCM Interface:**
+**What happens:**
+- Creates PLC identity with cryptographic signing
+- Demonstrates capture → attestation → federation flow
+- Shows claim token system (organization creates proxy records)
+- Starts P2P networking on ports 8080 (TCP) and 8081 (UDP)
+- Initializes CRDT conflict resolution system
+- Runs interactive demonstration of all features
+
+### 2. Browser OCM Interface (WASM + OPFS Demo)
+**What it demonstrates:** Zero-install browser deployment with persistent SQLite storage.
+
 ```bash
-# Build WASM package (if not already built)
+# 1. Build WASM package
 cd ocm-wasm && wasm-pack build --target web --out-dir pkg
 
-# Start web server  
+# 2. Start web server (serves WASM interface)
 cargo run --bin web-server
 
-# Open http://127.0.0.1:8000 in browser
-# Full OPFS + SQLite persistence now working
+# 3. Open browser and navigate to:
+# http://127.0.0.1:8000
 ```
 
-### Network Configuration
-The node will start with:
-- **P2P Federation:** TCP connections on `127.0.0.1:8080`
-- **Peer Discovery:** UDP broadcasts on `127.0.0.1:8081`
-- **Local Database:** SQLite at `data/ocm-impl.db`
+**Browser Features:**
+- Complete SQLite database running in browser via WASM
+- OPFS (Origin Private File System) for persistent storage
+- Cryptographic identity creation and memory signing
+- Professional web interface for data sovereignty
+- Works offline, survives browser restarts
+
+### 3. WebSocket Relay Server (Multi-Tab Sync)
+**What it demonstrates:** Real-time synchronization between browser tabs/devices.
+
+```bash
+# Start the relay server
+cargo run --bin relay-server
+
+# Server runs on 127.0.0.1:8082
+# Handles WebSocket connections for tab-to-tab sync
+```
+
+**Use with browser demo:** Open multiple browser tabs with the OCM interface to see real-time synchronization.
+
+### 4. Database Migration Utility
+**What it demonstrates:** Production-ready database schema management.
+
+```bash
+# Run database migrations manually
+cargo run --bin migrate
+```
+
+Creates SQLite database at `data/ocm-impl.db` with tables:
+- `individual` - Personal data records
+- `signed_memory` - Cryptographically signed memories
+- `claim_tokens` - Organization proxy records
+
+## Demo Scenarios
+
+### Full System Demo (All Components)
+```bash
+# Terminal 1: Initialize database
+cargo run --bin migrate
+
+# Terminal 2: Start native OCM node
+cargo run --bin ocm-impl
+
+# Terminal 3: Start relay server
+cargo run --bin relay-server
+
+# Terminal 4: Start web server
+cargo run --bin web-server
+
+# Browser: Open multiple tabs to http://127.0.0.1:8000
+```
+
+### Quick Browser-Only Demo
+```bash
+cd ocm-wasm && wasm-pack build --target web --out-dir pkg
+cargo run --bin web-server
+# Open http://127.0.0.1:8000
+```
+
+### P2P Network Demo
+```bash
+# Start two nodes in separate terminals:
+cargo run --bin ocm-impl  # First node
+cargo run --bin ocm-impl  # Second node (will discover first)
+```
 
 ### Network Architecture
 ```
@@ -140,6 +215,10 @@ The node will start with:
 │ SQLite DB   │                     │ SQLite DB   │
 │ (Personal)  │                     │ (Personal)  │
 └─────────────┘                     └─────────────┘
+       │                                   │
+       └───────────► WebSocket Relay ◄─────┘
+                    (Multi-device sync)
+                        :8082
 ```
 
 ## Documentation

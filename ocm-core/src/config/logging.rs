@@ -1,6 +1,6 @@
-use crate::core::error::{OcmError, Result};
 use crate::config::app::OcmConfig;
-use tracing::{info};
+use crate::core::error::{OcmError, Result};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init_logging(config: &OcmConfig) -> Result<()> {

@@ -11,15 +11,15 @@ pub mod persistence;
 pub mod sync;
 
 // Re-export key types for external use
-pub use core::{models::*, error::*};
+pub use core::{error::*, models::*};
 pub use identity::plc::*;
 
 #[cfg(feature = "native")]
 pub use identity::claims::*;
 
 #[cfg(feature = "native")]
-pub use persistence::database::Database;
-#[cfg(feature = "native")]
 pub use networking::protocol::OcmNetworking;
+#[cfg(feature = "native")]
+pub use persistence::database::Database;
 #[cfg(feature = "native")]
 pub use sync::manager::SyncManager;
