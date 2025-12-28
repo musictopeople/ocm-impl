@@ -3,12 +3,15 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::*;
 
+#[wasm_bindgen]
 pub struct OcmWebSocket {
     ws: Option<WebSocket>,
     on_message_callback: Option<js_sys::Function>,
 }
 
+#[wasm_bindgen]
 impl OcmWebSocket {
+    #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
             ws: None,
@@ -16,6 +19,7 @@ impl OcmWebSocket {
         }
     }
 
+    #[wasm_bindgen]
     pub fn connect(&mut self, relay_url: &str) -> Result<(), JsValue> {
         let ws = WebSocket::new(relay_url)?;
 
@@ -48,6 +52,7 @@ impl OcmWebSocket {
         Ok(())
     }
 
+    #[wasm_bindgen]
     pub fn set_on_memory_received(&mut self, callback: js_sys::Function) {
         if let Some(ws) = &self.ws {
             let callback_clone = callback.clone();
@@ -56,10 +61,33 @@ impl OcmWebSocket {
                 if let Ok(text) = event.data().dyn_into::<js_sys::JsString>() {
                     let text_string = String::from(text);
 
-                    // Try to parse as SignedMemory
-                    if let Ok(memory) = serde_json::from_str::<SignedMemory>(&text_string) {
-                        let memory_js = serde_wasm_bindgen::to_value(&memory).unwrap();
-                        let _ = callback_clone.call1(&JsValue::NULL, &memory_js);
+                    // Parse relay protocol message
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text_string) {
+                        if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                            match msg_type {
+                                "memory_sync" => {
+                                    if let Some(data) = json.get("data") {
+                                        if let Ok(memory) =
+                                            serde_json::from_value::<SignedMemory>(data.clone())
+                                        {
+                                            let memory_js =
+                                                serde_wasm_bindgen::to_value(&memory).unwrap();
+                                            let _ =
+                                                callback_clone.call1(&JsValue::NULL, &memory_js);
+                                        }
+                                    }
+                                }
+                                "welcome" => {
+                                    web_sys::console::log_1(&"Connected to relay server".into());
+                                }
+                                _ => {
+                                    // Handle other message types if needed
+                                    web_sys::console::log_1(
+                                        &format!("Received message type: {}", msg_type).into(),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }) as Box<dyn FnMut(MessageEvent)>);
@@ -69,9 +97,20 @@ impl OcmWebSocket {
         }
     }
 
-    pub fn send_memory(&self, memory: &SignedMemory) -> Result<(), String> {
+    #[wasm_bindgen]
+    pub fn send_memory(&self, memory_json: &str) -> Result<(), String> {
         if let Some(ws) = &self.ws {
-            let json = serde_json::to_string(memory).map_err(|e| e.to_string())?;
+            // Parse the memory JSON first to validate it
+            let memory: SignedMemory = serde_json::from_str(memory_json)
+                .map_err(|e| format!("Invalid memory JSON: {}", e))?;
+
+            // Wrap memory in the relay protocol format
+            let message = serde_json::json!({
+                "type": "memory_sync",
+                "data": memory
+            });
+
+            let json = serde_json::to_string(&message).map_err(|e| e.to_string())?;
 
             ws.send_with_str(&json)
                 .map_err(|e| format!("Send error: {:?}", e))?;
@@ -80,6 +119,7 @@ impl OcmWebSocket {
         Ok(())
     }
 
+    #[wasm_bindgen]
     pub fn disconnect(&mut self) {
         if let Some(ws) = &self.ws {
             let _ = ws.close();
@@ -87,6 +127,7 @@ impl OcmWebSocket {
         self.ws = None;
     }
 
+    #[wasm_bindgen]
     pub fn is_connected(&self) -> bool {
         if let Some(ws) = &self.ws {
             ws.ready_state() == WebSocket::OPEN

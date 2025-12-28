@@ -60,6 +60,17 @@ logs/
 **/pkg/
 *.wasm
 
+# Downloaded dependencies (sql.js)
+**/lib/sql-wasm.*
+sql-wasm.*
+
+# TLS certificates (should not be committed)
+certs/
+!certs/README.md
+
+# Duplicated build directories
+ocm-wasm/ocm-wasm/
+
 # Node.js (if any JS tooling is added)
 node_modules/
 npm-debug.log*
@@ -87,3 +98,6 @@ private_keys/
 *.key
 *.pem
 secrets/
+
+# Project documentation (auto-generated)
+CLAUDE.md

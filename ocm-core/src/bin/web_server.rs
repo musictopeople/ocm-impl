@@ -38,6 +38,17 @@ fn handle_connection(mut stream: TcpStream) {
         } else {
             serve_file(&file_path, "text/plain")
         }
+    } else if request_line.starts_with("GET /") {
+        let path = request_line.split_whitespace().nth(1).unwrap();
+        let file_path = format!("ocm-wasm{}", path);
+
+        if path.ends_with(".wasm") {
+            serve_file(&file_path, "application/wasm")
+        } else if path.ends_with(".js") {
+            serve_file(&file_path, "application/javascript")
+        } else {
+            serve_file(&file_path, "text/plain")
+        }
     } else {
         (
             "HTTP/1.1 404 NOT FOUND".to_string(),

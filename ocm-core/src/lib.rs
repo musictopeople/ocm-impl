@@ -8,6 +8,8 @@ pub mod networking;
 #[cfg(feature = "native")]
 pub mod persistence;
 #[cfg(feature = "native")]
+pub mod security;
+#[cfg(feature = "native")]
 pub mod sync;
 
 // Re-export key types for external use

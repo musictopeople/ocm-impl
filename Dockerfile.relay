@@ -1,0 +1,31 @@
+# Relay server Dockerfile
+FROM rust:1.70 as builder
+
+WORKDIR /app
+COPY . .
+
+# Build relay server
+RUN cargo build --release --bin relay-server
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -r -s /bin/false relayuser
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/relay-server /app/
+
+USER relayuser
+
+EXPOSE 8082
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8082/health || exit 1
+
+CMD ["./relay-server"]

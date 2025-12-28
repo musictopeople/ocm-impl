@@ -15,6 +15,10 @@ path = "src/bin/migrate.rs"
 name = "web-server"
 path = "src/bin/web_server.rs"
 
+[[bin]]
+name = "secure-web-server"
+path = "src/bin/secure_web_server.rs"
+
 [dependencies]
 serde = { workspace = true }
 uuid = { workspace = true }
@@ -44,6 +48,23 @@ url = { workspace = true, optional = true }
 did-method-plc = { workspace = true, optional = true }
 atproto-identity = { workspace = true, optional = true }
 
+# TLS and HTTP server dependencies
+axum = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+axum-server = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
+
+# Security and validation dependencies
+validator = { workspace = true, optional = true }
+serde_valid = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
+dashmap = { workspace = true, optional = true }
+
 [features]
 default = ["native"]
 native = [
@@ -56,5 +77,18 @@ native = [
     "config",
     "url",
     "did-method-plc",
-    "atproto-identity"
+    "atproto-identity",
+    "axum",
+    "tower",
+    "tower-http",
+    "axum-server",
+    "rustls",
+    "rustls-pemfile",
+    "tokio-rustls",
+    "rcgen",
+    "validator",
+    "serde_valid",
+    "regex",
+    "once_cell",
+    "dashmap"
 ]

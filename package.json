@@ -1,0 +1,60 @@
+{
+  "name": "ocm-implementation",
+  "version": "0.1.0",
+  "description": "OCM (Our Collective Memory) - Distributed memory protocol for data sovereignty",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run build:wasm && npm run build:core",
+    "build:wasm": "cd ocm-wasm && wasm-pack build --target web --out-dir pkg",
+    "build:core": "cargo build --release",
+    "build:all": "npm run build:core && npm run build:wasm",
+    "dev": "npm run dev:server",
+    "dev:server": "cargo run -p ocm-core --bin web-server",
+    "dev:secure": "cargo run -p ocm-core --bin secure-web-server",
+    "dev:https": "cargo run -p ocm-core --bin secure-web-server",
+    "dev:relay": "cargo run -p relay-server",
+    "dev:all": "concurrently \"npm run dev:secure\" \"npm run dev:relay\" \"npm run build:wasm\"",
+    "dev:core": "cargo run -p ocm-core --bin ocm-core",
+    "test": "cargo test",
+    "test:wasm": "cd ocm-wasm && wasm-pack test --headless --firefox",
+    "clean": "cargo clean && rm -rf ocm-wasm/pkg",
+    "migrate": "cargo run -p ocm-core --bin migrate",
+    "start": "npm run migrate && npm run build && npm run dev:server",
+    "deploy:build": "npm run clean && npm run build:all",
+    "docker:build": "docker build -t ocm-impl .",
+    "docker:run": "docker run -p 8000:8000 ocm-impl",
+    "security:audit": "cargo audit",
+    "format": "cargo fmt",
+    "lint": "cargo clippy -- -D warnings",
+    "check": "cargo check --all-targets"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/ocm-implementation.git"
+  },
+  "keywords": [
+    "decentralized",
+    "identity",
+    "data-sovereignty",
+    "cryptography",
+    "local-first",
+    "p2p",
+    "wasm",
+    "rust"
+  ],
+  "author": "OCM Contributors",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/your-org/ocm-implementation/issues"
+  },
+  "homepage": "https://github.com/your-org/ocm-implementation#readme",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

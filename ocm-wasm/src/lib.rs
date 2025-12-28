@@ -4,10 +4,12 @@ use web_sys::console;
 // Import core OCM functionality
 use ocm_core::{PlcIdentity, SignedMemory};
 
+mod crypto;
 mod storage;
 mod utils;
 mod websocket;
 
+pub use crypto::*;
 pub use storage::*;
 pub use utils::*;
 pub use websocket::*;
@@ -47,6 +49,7 @@ pub fn main() {
 pub struct OcmWasm {
     storage: BrowserStorage,
     identity: Option<PlcIdentity>,
+    websocket: Option<OcmWebSocket>,
 }
 
 #[wasm_bindgen]
@@ -58,6 +61,7 @@ impl OcmWasm {
         Self {
             storage: BrowserStorage::new(),
             identity: None,
+            websocket: None,
         }
     }
 
@@ -112,5 +116,52 @@ impl OcmWasm {
             .map_err(|e| format!("Storage error: {:?}", e))?;
 
         serde_json::to_string(&memories).map_err(|e| e.to_string())
+    }
+
+    // WebSocket methods
+    #[wasm_bindgen]
+    pub fn connect_relay(&mut self, relay_url: &str) -> Result<(), String> {
+        let mut ws = OcmWebSocket::new();
+        ws.connect(relay_url)
+            .map_err(|e| format!("Connection error: {:?}", e))?;
+        self.websocket = Some(ws);
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn set_memory_callback(&mut self, callback: &js_sys::Function) {
+        if let Some(ws) = &mut self.websocket {
+            ws.set_on_memory_received(callback.clone());
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn send_memory_to_relay(&self, memory_json: &str) -> Result<(), String> {
+        let memory: SignedMemory =
+            serde_json::from_str(memory_json).map_err(|e| format!("JSON parse error: {}", e))?;
+
+        if let Some(ws) = &self.websocket {
+            ws.send_memory(memory_json)?;
+        } else {
+            return Err("WebSocket not connected".to_string());
+        }
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn disconnect_relay(&mut self) {
+        if let Some(ws) = &mut self.websocket {
+            ws.disconnect();
+        }
+        self.websocket = None;
+    }
+
+    #[wasm_bindgen]
+    pub fn is_relay_connected(&self) -> bool {
+        if let Some(ws) = &self.websocket {
+            ws.is_connected()
+        } else {
+            false
+        }
     }
 }

@@ -17,9 +17,12 @@ impl Database {
     }
 
     fn get_connection(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
-        self.conn
-            .lock()
-            .map_err(|_| OcmError::Database(rusqlite::Error::InvalidPath("Mutex poisoned".into())))
+        self.conn.lock().map_err(|_| {
+            OcmError::Database(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISUSE),
+                Some("Mutex poisoned".to_string()),
+            ))
+        })
     }
 
     pub fn create_individual(&self, individual: &Individual) -> Result<()> {

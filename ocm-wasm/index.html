@@ -131,12 +131,21 @@
         </div>
 
         <div class="section">
+            <h3>🌐 Real-time Sync</h3>
+            <input type="text" id="relay-url" placeholder="WebSocket Relay URL" value="ws://127.0.0.1:8082">
+            <button id="connect-relay" disabled>Connect to Relay</button>
+            <button id="disconnect-relay" disabled>Disconnect</button>
+            <div id="sync-status" class="status info">Not connected to relay</div>
+            <div id="sync-log"></div>
+        </div>
+
+        <div class="section">
             <h3>Debug</h3>
             <pre id="debug-log"></pre>
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script src="./sql-wasm.js"></script>
     <script type="module">
         import init, { OcmWasm } from './pkg/ocm_wasm.js';
 
@@ -171,7 +180,7 @@
             try {
                 // Initialize sql.js
                 const SQL = await initSqlJs({
-                    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+                    locateFile: file => `./${file}`
                 });
                 log('SQL.js loaded successfully');
 
@@ -384,7 +393,7 @@
                 memoryList.innerHTML = memories.map(memory => `
                     <div class="memory-item">
                         <strong>Type:</strong> ${memory.memory_type || 'unknown'}<br>
-                        <strong>Data:</strong> ${memory.data ? memory.data.substring(0, 100) + '...' : 'No data'}
+                        <strong>Data:</strong> ${memory.memory_data ? memory.memory_data.substring(0, 100) + '...' : 'No data'}
                         <small>
                             ID: ${memory.id || 'unknown'}<br>
                             Timestamp: ${memory.timestamp || 'unknown'}
@@ -513,8 +522,138 @@
             }
         });
 
+        // WebSocket relay functionality
+        document.getElementById('connect-relay').addEventListener('click', async () => {
+            try {
+                const relayUrl = document.getElementById('relay-url').value;
+                if (!relayUrl) {
+                    updateStatus('Please enter relay URL', 'error');
+                    return;
+                }
+                
+                await ocmWasm.connect_relay(relayUrl);
+                
+                // Set up callback for incoming memories
+                const memoryCallback = (memory) => {
+                    console.log('Received memory from relay:', memory);
+                    addSyncLogMessage(`📨 Received: ${memory.memory_type} (${memory.id.substring(0, 8)}...)`);
+                    
+                    // Update the memory list
+                    updateMemoryList();
+                };
+                
+                ocmWasm.set_memory_callback(memoryCallback);
+                
+                updateSyncStatus('✅ Connected to relay', 'success');
+                document.getElementById('connect-relay').disabled = true;
+                document.getElementById('disconnect-relay').disabled = false;
+                addSyncLogMessage(`🔗 Connected to ${relayUrl}`);
+                
+            } catch (error) {
+                updateSyncStatus(`❌ Connection failed: ${error}`, 'error');
+                console.error('Relay connection error:', error);
+            }
+        });
+
+        document.getElementById('disconnect-relay').addEventListener('click', () => {
+            try {
+                ocmWasm.disconnect_relay();
+                updateSyncStatus('⚪ Disconnected from relay', 'info');
+                document.getElementById('connect-relay').disabled = false;
+                document.getElementById('disconnect-relay').disabled = true;
+                addSyncLogMessage('🔌 Disconnected from relay');
+            } catch (error) {
+                console.error('Disconnect error:', error);
+            }
+        });
+
+        function updateSyncStatus(message, type) {
+            const syncStatus = document.getElementById('sync-status');
+            syncStatus.textContent = message;
+            syncStatus.className = `status ${type}`;
+        }
+
+        function addSyncLogMessage(message) {
+            const syncLog = document.getElementById('sync-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.fontSize = '12px';
+            logEntry.style.color = '#666';
+            logEntry.style.marginTop = '5px';
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            syncLog.appendChild(logEntry);
+            
+            // Keep only last 10 messages
+            while (syncLog.children.length > 10) {
+                syncLog.removeChild(syncLog.firstChild);
+            }
+        }
+
+        // Enhanced memory creation with relay broadcast
+        async function createAndBroadcastMemory() {
+            try {
+                // Create memory locally (existing functionality)
+                const memoryType = document.getElementById('memory-type').value;
+                const memoryData = document.getElementById('memory-data').value;
+                
+                if (!memoryType || !memoryData) {
+                    updateStatus('Please fill in memory type and data', 'error');
+                    return;
+                }
+
+                // Validate JSON
+                try {
+                    JSON.parse(memoryData);
+                } catch {
+                    updateStatus('Memory data must be valid JSON', 'error');
+                    return;
+                }
+
+                const memoryId = await ocmWasm.store_memory(memoryType, memoryData);
+                updateStatus('Memory created successfully!', 'success');
+                
+                // If connected to relay, broadcast the memory
+                if (ocmWasm.is_relay_connected()) {
+                    try {
+                        // Get the created memory and broadcast it
+                        const memoriesJson = await ocmWasm.list_memories();
+                        const memories = JSON.parse(memoriesJson);
+                        const newMemory = memories.find(m => m.id === memoryId);
+                        
+                        if (newMemory) {
+                            await ocmWasm.send_memory_to_relay(JSON.stringify(newMemory));
+                            addSyncLogMessage(`📤 Broadcasted: ${memoryType} (${memoryId.substring(0, 8)}...)`);
+                        }
+                    } catch (relayError) {
+                        console.warn('Failed to broadcast memory:', relayError);
+                        addSyncLogMessage(`⚠️ Broadcast failed: ${relayError}`);
+                    }
+                }
+                
+                // Refresh memory list
+                await updateMemoryList();
+                
+                // Clear form
+                document.getElementById('memory-data').value = '';
+                
+            } catch (error) {
+                updateStatus(`Failed to create memory: ${error.message}`, 'error');
+                log(`Memory creation error: ${error}`);
+            }
+        }
+
+        // Override the existing create-memory handler
+        document.getElementById('create-memory').removeEventListener('click', () => {});
+        document.getElementById('create-memory').addEventListener('click', createAndBroadcastMemory);
+
+        function enableRelayButtons() {
+            document.getElementById('connect-relay').disabled = false;
+        }
+
         // Initialize when page loads
-        initOCM();
+        initOCM().then(() => {
+            enableRelayButtons();
+        });
     </script>
 </body>
 </html>

@@ -65,4 +65,17 @@ features = [
   "Event",
   "EventTarget",
   "WorkerGlobalScope",
+  # WebCrypto API features
+  "Crypto",
+  "SubtleCrypto", 
+  "CryptoKey",
+  "CryptoKeyPair",
+  # IndexedDB features
+  "IdbDatabase",
+  "IdbTransaction",
+  "IdbObjectStore",
+  "IdbRequest",
+  "IdbOpenDbRequest",
+  # Location API
+  "Location",
 ]
